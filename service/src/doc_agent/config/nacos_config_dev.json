@@ -1,0 +1,320 @@
+{
+  "redis": {
+    "mode": "single",
+    "single": {
+      "host": "10.215.149.74",
+      "port": 26379,
+      "db": 0,
+      "password": "${SPRING_REDIS_PASSWORD}"
+    },
+    "cluster": {
+      "nodes": [
+        "10.215.149.74:6380",
+        "10.215.149.75:6380"
+      ],
+      "max_redirects": 3,
+      "password": "${SPRING_REDIS_PASSWORD}",
+      "timeout": 35000,
+      "pool": {
+        "max_active": 20,
+        "max_idle": 10,
+        "min_idle": 2,
+        "max_wait": 5000
+      },
+      "refresh": {
+        "adaptive": true,
+        "period": 30000
+      },
+      "shutdown_timeout": 10000,
+      "retry": {
+        "attempts": 3,
+        "interval": 5000
+      },
+      "concurrency": 1
+    }
+  },
+  "supported_models": {
+    "hdy_model": {
+      "name": "HDY模型",
+      "type": "enterprise_generate",
+      "model_id": "Qwen3-235B-new",
+      "url": "http://10.238.130.28:10004/v1",
+      "reasoning": false,
+      "description": "基于 qwen-32b 精调的行业知识问答模型",
+      "api_key": "EMPTY"
+    },
+    "qwen_2_5_235b_a22b": {
+      "name": "Qwen3-235B-A22B-new (推理)",
+      "type": "enterprise_generate",
+      "model_id": "hdy_model",
+      "url": "http://nginx-lb.hdec-copilot.svc.cluster.local:30002/v1",
+      "reasoning": true,
+      "description": "千问 235b 最强推理模型量化版",
+      "api_key": "EMPTY"
+    },
+    "qwen_72b": {
+      "name": "Qwen2.5-72B (基础)",
+      "type": "enterprise_generate",
+      "model_id": "Qwen2.5-72B-new",
+      "url": "http://10.238.130.16:23215/v1",
+      "reasoning": false,
+      "description": "千问 72b 大模型",
+      "api_key": "EMPTY"
+    },
+    "reranker": {
+      "name": "reranker",
+      "type": "enterprise_reranker",
+      "model_id": "reranker",
+      "url": "http://10.218.108.239:39939/reranker",
+      "description": "reranker - 重排序模型，擅长重排序任务",
+      "api_key": "EMPTY"
+    },
+    "gte_qwen": {
+      "name": "gte_qwen",
+      "type": "enterprise_embedding",
+      "model_id": "gte_qwen",
+      "url": "http://10.215.58.199:13037/embed",
+      "description": "gte_qwen - 嵌入模型",
+      "api_key": "EMPTY"
+    }
+  },
+  "elasticsearch": {
+    "hosts": [
+      "https://10.238.130.43:9200",
+      "https://10.238.130.44:9200",
+      "https://10.238.130.45:9200"
+    ],
+    "port": 9200,
+    "scheme": "https",
+    "username": "devops",
+    "password": "mQxMg8wEKnN1WExz",
+    "verify_certs": false,
+    "index_prefix": "doc_gen",
+    "timeout": 30,
+    "max_retries": 3,
+    "retry_on_timeout": true
+  },
+  "document_generation": {
+    "es_search": {
+      "vector_recall_size": 20,
+      "hybrid_recall_size": 15,
+      "rerank_size": 8,
+      "min_score": 0.3
+    },
+    "document_length": {
+      "total_target_words": 8000,
+      "chapter_target_words": 1600,
+      "chapter_count": 5,
+      "min_chapter_words": 800,
+      "max_chapter_words": 2500
+    },
+    "generation_complexity": {
+      "level": "fast",
+      "fast": {
+        "initial_search_queries": 2,
+        "chapter_search_queries": 2,
+        "max_search_results": 3,
+        "data_truncate_length": 5000,
+        "max_chapters": 2,
+        "chapter_target_words": 600,
+        "total_target_words": 1200,
+        "vector_recall_size": 10,
+        "hybrid_recall_size": 8,
+        "rerank_size": 5,
+        "use_simplified_prompts": true,
+        "llm_timeout": 60,
+        "max_retries": 2
+      },
+      "standard": {
+        "initial_search_queries": 5,
+        "chapter_search_queries": 3,
+        "max_search_results": 5,
+        "data_truncate_length": 10000,
+        "max_chapters": 5,
+        "chapter_target_words": 1600,
+        "total_target_words": 8000,
+        "vector_recall_size": 20,
+        "hybrid_recall_size": 15,
+        "rerank_size": 8,
+        "use_simplified_prompts": false,
+        "llm_timeout": 180,
+        "max_retries": 5
+      },
+      "comprehensive": {
+        "initial_search_queries": 8,
+        "chapter_search_queries": 5,
+        "max_search_results": 10,
+        "data_truncate_length": -1,
+        "max_chapters": -1,
+        "chapter_target_words": 2000,
+        "total_target_words": 15000,
+        "vector_recall_size": 30,
+        "hybrid_recall_size": 20,
+        "rerank_size": 12,
+        "use_simplified_prompts": false,
+        "llm_timeout": 300,
+        "max_retries": 8
+      }
+    }
+  },
+  "agent_config": {
+    "default_llm": "qwen_2_5_235b_a22b",
+    "task_planner": {
+      "name": "task_planner",
+      "description": "任务规划器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.7,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    },
+    "retriever": {
+      "name": "retriever",
+      "description": "检索器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.7,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    },
+    "executor": {
+      "name": "executor",
+      "description": "执行器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.7,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    },
+    "composer": {
+      "name": "composer",
+      "description": "写作器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.8,
+      "max_tokens": 3000,
+      "timeout": 300,
+      "retry_count": 8,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 300
+      }
+    },
+    "validator": {
+      "name": "validator",
+      "description": "验证器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.6,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    },
+    "knowledge_retriever": {
+      "name": "knowledge_retriever",
+      "description": "知识检索器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.7,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    },
+    "hybrid_retriever": {
+      "name": "hybrid_retriever",
+      "description": "混合检索器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.7,
+      "max_tokens": 2000,
+      "timeout": 240,
+      "retry_count": 6,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 240
+      }
+    },
+    "content_composer": {
+      "name": "content_composer",
+      "description": "内容创作器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.8,
+      "max_tokens": 4000,
+      "timeout": 360,
+      "retry_count": 10,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 360
+      }
+    },
+    "content_checker": {
+      "name": "content_checker",
+      "description": "内容检查器",
+      "provider": "qwen_2_5_235b_a22b",
+      "model": "qwen_2_5_235b_a22b",
+      "temperature": 0.6,
+      "max_tokens": 2000,
+      "timeout": 180,
+      "retry_count": 5,
+      "enable_logging": true,
+      "extra_params": {
+        "connect_timeout": 60,
+        "read_timeout": 180
+      }
+    }
+  },
+  "search_config": {
+    "max_search_rounds": 1,
+    "max_queries": 1,
+    "max_results_per_query": 3
+  },
+  "storage": {
+    "base_url": "https://copilot.test.hcece.net"
+  },
+  "logging": {
+    "level": "INFO",
+    "file_path": "logs/app.log",
+    "rotation": "10 MB",
+    "retention": "7 days"
+  },
+  "log_dir": "logs",
+  "output_dir": "output",
+  "server": {
+    "max_concurrent_tasks": 10,
+    "workers": 5,
+    "host": "0.0.0.0",
+    "port": 8081
+  }
+}

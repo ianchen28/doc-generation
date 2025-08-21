@@ -1,0 +1,11 @@
+# NACOS配置
+ENV=dev
+NACOS_NAMESPACE=hdec-llm
+NACOS_GROUP=DEFAULT_GROUP
+NACOS_DATA_ID=doc-generation.json
+NACOS_SERVER_ADDRESSES=nacos.common.svc.cluster.local:8848
+
+# 服务器配置（可选，会从NACOS读取）
+# SERVER_WORKERS=8
+# SERVER_HOST=0.0.0.0
+# SERVER_PORT=8081

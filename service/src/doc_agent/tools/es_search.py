@@ -42,10 +42,11 @@ class ESSearchTool:
         self.timeout = timeout
 
         # 初始化底层服务
-        self._es_service = ESService(hosts, username, password, timeout, connections_per_node)
+        self._es_service = ESService(hosts, username, password, timeout,
+                                     connections_per_node)
         self._discovery = ESDiscovery(self._es_service)
         self._current_index = None
-        self._indices_list = []
+        self._indices_list = self._es_service.get_valid_indices()
         self._vector_dims = 1536
         self._initialized = False
         logger.info("初始化ES搜索工具")
@@ -57,86 +58,7 @@ class ESSearchTool:
             try:
                 # 发现可用索引
                 # 提取索引名称列表
-                self._indices_list = [
-                        'personal_knowledge_base', '.infini_alert-message',
-                        '.infini_visualization', 'hdy_knowledge_base_v3_0422',
-                        '.infini_rbac-user', '.infini_alert-rule',
-                        '.infini_node', '.infini_layout',
-                        '.internal.alerts-observability.uptime.alerts-default-000001',
-                        'thesis_index_base', '.apm-source-map',
-                        '.infini_async_bulk_results-00001',
-                        '.slo-observability.summary-v3.temp',
-                        '.internal.alerts-transform.health.alerts-default-000001',
-                        'thesis_index_base_v2', 'thesis_index_base_v3',
-                        'text2sql_table', 'ai_demo',
-                        '.internal.alerts-observability.apm.alerts-default-000001',
-                        '.infini_dashboard', '.infini_requests_logging-00001',
-                        'internal_index_base_v2', '.infini_widget',
-                        'standard_index_base_v2', 'internal_index_base_v3',
-                        '.infini_channel',
-                        '.internal.alerts-security.alerts-default-000001',
-                        'other_index_base', '.infini_view',
-                        '.internal.alerts-observability.logs.alerts-default-000001',
-                        '.infini_configs', 'standard_index_base',
-                        '.infini_alert-history-000003',
-                        '.infini_alert-history-000002', '.infini_index',
-                        '.infini_instance', '.slo-observability.summary-v3',
-                        'dev_user_knowledge_base_v1',
-                        '.kibana-observability-ai-assistant-kb-000001',
-                        '.infini_credential', '.infini_host', '.infini_task',
-                        'defection_index_base', '.slo-observability.sli-v3',
-                        'hdy_leader_index', '.infini_commands',
-                        '.internal.alerts-ml.anomaly-detection.alerts-default-000001',
-                        '.internal.alerts-observability.slo.alerts-default-000001',
-                        '.infini_activities-000002',
-                        '.internal.alerts-observability.metrics.alerts-default-000001',
-                        '.infini_activities-000003', 'book_index_base_v2',
-                        'hdy_knowledge_summary_index',
-                        'thesis_summary_index_base', 'dev_user_knowledge_base',
-                        '.monitoring-es-7-2025.08.13',
-                        '.monitoring-es-7-2025.08.14',
-                        '.monitoring-es-7-2025.08.15',
-                        '.monitoring-es-7-2025.08.16',
-                        '.monitoring-es-7-2025.08.17',
-                        '.internal.alerts-stack.alerts-default-000001',
-                        '.monitoring-es-7-2025.08.18',
-                        '.monitoring-es-7-2025.08.19',
-                        '.monitoring-kibana-7-2025.08.13',
-                        'extract_image_index_v4', 'book_index_base',
-                        '.infini_metrics-000005',
-                        '.monitoring-kibana-7-2025.08.19',
-                        '.infini_metrics-000004',
-                        '.monitoring-kibana-7-2025.08.18',
-                        '.infini_metrics-000007', '.infini_metrics-000006',
-                        '.monitoring-kibana-7-2025.08.15',
-                        '.monitoring-kibana-7-2025.08.14',
-                        'book_index_base_v2_1', '.infini_metrics-000003',
-                        '.monitoring-kibana-7-2025.08.17',
-                        '.infini_logs-00001',
-                        '.monitoring-kibana-7-2025.08.16',
-                        '.kibana-observability-ai-assistant-conversations-000001',
-                        '.internal.alerts-observability.threshold.alerts-default-000001',
-                        'text2sql_enum_prod', '.infini_cluster',
-                        'text2sql_enum', 'hdy_knowledge_base_v5',
-                        'hdy_knowledge_base_v3', 'hdy_knowledge_base_v7',
-                        'hdy_knowledge_base_v8', '.infini_rbac-role',
-                        '.internal.alerts-default.alerts-default-000001',
-                        'hdy_knowledge_base',
-                        '.internal.alerts-ml.anomaly-detection-health.alerts-default-000001',
-                        '.infini_notification', '.infini_email-server',
-                        '.infini_audit-logs-000002',
-                        '.infini_audit-logs-000003',
-                        'standard_summary_index_base_v6',
-                        'standard_summary_index_base_v4',
-                        'standard_summary_index_base_v5',
-                        'book_index_base_v3_2',
-                        'standard_summary_index_base_v2', 'formula_index_base',
-                        'standard_summary_index_base_v3',
-                        'internal_index_base', 'standard_index_v1_1',
-                        'standard_index_v1_2', 'text2sql_table_prod',
-                        'standard_summary_index_base', 'hdy_leader_index_v4',
-                        'hdy_leader_index_v2'
-                    ]
+                self._indices_list = self._es_service.get_valid_indices()
                 self._current_index = self._discovery.get_best_index()
                 self._vector_dims = self._discovery.get_vector_dims()
                 self._initialized = True
@@ -371,7 +293,7 @@ class ESSearchTool:
 
         # 执行搜索
         results = await self._es_service.search(
-            index="*",  # 使用通配符索引
+            index="personal_knowledge_base",  # 使用通配符索引
             query=query,
             top_k=top_k,
             query_vector=query_vector,

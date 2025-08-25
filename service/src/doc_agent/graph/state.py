@@ -29,6 +29,7 @@ class ResearchState(TypedDict):
 
     # 第一层: 上层研究的初始研究结果
     initial_sources: list[Source]  # 初始研究结果
+    initial_gathered_data: str  # 初始研究数据（字符串格式）
 
     # 文档结构
     document_outline: dict  # 结构化的大纲，包含章节和部分
@@ -42,6 +43,7 @@ class ResearchState(TypedDict):
     completed_chapters: list[dict[
         str,
         Any]]  # e.g., [{"title": "...", "content": "...", "summary": "..."}]
+    completed_chapters_content: list[str]  # 已完成章节的内容列表，用于章节工作流上下文
 
     # 最终输出
     final_document: str  # 完整的、拼接的文档
@@ -51,6 +53,8 @@ class ResearchState(TypedDict):
     chapter_word_count: int  # 当前章节字数
     search_queries: list[str]  # 当前章节的搜索查询列表
     gathered_sources: list[Source]  # 当前章节收集的数据
+    gathered_data: str  # 当前章节收集的数据（字符串格式）
+    current_chapter_sub_sections: list[dict]  # 当前章节的子节信息
 
     # 源追踪
     sources: list[Source]  # 当前章节收集的所有信息源，章节生成后并入 all_sources
@@ -77,3 +81,4 @@ class ResearchState(TypedDict):
     # AI展示
     ai_demo: bool  # 是否为AI展示
     performance_metrics: dict[str, list[float]]  # 性能指标
+    writer_steps: int  # 写作步骤计数器

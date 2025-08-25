@@ -37,6 +37,11 @@ def get_llm_client(model_key: str = "qwen_2_5_235b_a22b") -> LLMClient:
     except Exception:
         logger.debug("Model configuration: <unprintable>")
 
+    # 获取复杂度配置中的timeout设置
+    complexity_config = settings.get_complexity_config()
+    timeout = complexity_config.get('llm_timeout', 180)  # 默认180秒
+    logger.info(f"⏱️ 使用LLM timeout配置: {timeout}秒")
+
     # 根据模型类型创建相应的客户端
     if model_config.type == "enterprise_generate":
         # 企业内网模型
@@ -44,7 +49,8 @@ def get_llm_client(model_key: str = "qwen_2_5_235b_a22b") -> LLMClient:
         return InternalLLMClient(base_url=model_config.url,
                                  api_key=model_config.api_key,
                                  model_name=model_config.model_name,
-                                 reasoning=model_config.reasoning)
+                                 reasoning=model_config.reasoning,
+                                 timeout=timeout)
     elif model_config.type == "external_generate":
         # 外部模型
         if "gemini" in model_config.model_name.lower():
@@ -52,20 +58,23 @@ def get_llm_client(model_key: str = "qwen_2_5_235b_a22b") -> LLMClient:
             return GeminiClient(base_url=model_config.url,
                                 api_key=model_config.api_key,
                                 model_name=model_config.model_name,
-                                reasoning=model_config.reasoning)
+                                reasoning=model_config.reasoning,
+                                timeout=timeout)
         elif "deepseek" in model_config.model_name.lower():
             logger.info(f"🔍 创建DeepSeek客户端: {model_config.model_name}")
             return DeepSeekClient(base_url=model_config.url,
                                   api_key=model_config.api_key,
                                   model_name=model_config.model_name,
-                                  reasoning=model_config.reasoning)
+                                  reasoning=model_config.reasoning,
+                                  timeout=timeout)
         elif ("moonshot" in model_config.model_name.lower()
               or "kimi" in model_config.name.lower()):
             logger.info(f"🌙 创建Moonshot客户端: {model_config.model_name}")
             return MoonshotClient(base_url=model_config.url,
                                   api_key=model_config.api_key,
                                   model_name=model_config.model_name,
-                                  reasoning=model_config.reasoning)
+                                  reasoning=model_config.reasoning,
+                                  timeout=timeout)
         else:
             logger.error(f"❌ 未知的模型类型: {model_config.type}")
             raise ValueError(f"Unknown model type: {model_config.type}")

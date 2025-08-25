@@ -7,14 +7,18 @@ load_dotenv()
 
 env = os.getenv("ENV", "dev")
 
+
 class NacosConfig:
     namespace = os.getenv('NACOS_NAMESPACE', 'hdec-llm')
     group = os.getenv('NACOS_GROUP', 'DEFAULT_GROUP')
     data_id = os.getenv('NACOS_DATA_ID', 'doc-generation.json')
 
+
 nacos_config = NacosConfig()
 
-SERVER_ADDRESSES=os.getenv('NACOS_SERVER_ADDRESSES', 'nacos.common.svc.cluster.local:8848')
+SERVER_ADDRESSES = os.getenv('NACOS_SERVER_ADDRESSES',
+                             'nacos.common.svc.cluster.local:8848')
+
 
 def resolve_placeholders(data):
     """
@@ -24,40 +28,46 @@ def resolve_placeholders(data):
     if isinstance(data, str):
         # 使用正则表达式查找并替换 ${VARIABLE_NAME} 占位符
         pattern = r'\$\{([^}]+)\}'
-        
+
         def replace_placeholder(match):
             var_name = match.group(1)
             env_value = os.getenv(var_name)
-            
+
             if env_value is not None:
                 return env_value
             else:
                 # 环境变量不存在时的处理策略
                 return match.group(0)  # 保持原占位符
-        
+
         return re.sub(pattern, replace_placeholder, data)
-    
+
     elif isinstance(data, dict):
         # 递归处理字典
-        return {key: resolve_placeholders(value) for key, value in data.items()}
-    
+        return {
+            key: resolve_placeholders(value)
+            for key, value in data.items()
+        }
+
     elif isinstance(data, list):
         # 递归处理列表
         return [resolve_placeholders(item) for item in data]
-    
+
     else:
         # 其他类型直接返回
         return data
 
+
 try:
     if env in ['prod', 'test']:
         import nacos
-        client = nacos.NacosClient(SERVER_ADDRESSES, namespace=nacos_config.namespace)
-        raw_config_str = client.get_config(nacos_config.data_id, nacos_config.group)
-        
+        client = nacos.NacosClient(SERVER_ADDRESSES,
+                                   namespace=nacos_config.namespace)
+        raw_config_str = client.get_config(nacos_config.data_id,
+                                           nacos_config.group)
+
         # 解析JSON
         raw_config_data = json.loads(raw_config_str)
-        
+
         # 处理占位符替换
         config_file = resolve_placeholders(raw_config_data)
     else:
@@ -76,10 +86,7 @@ DEFAULT_CONFIG = {
             "password": "xJrhp*4mnHxbBWN2grqq"
         },
         "cluster": {
-            "nodes": [
-                "10.215.149.74:6380",
-                "10.215.149.75:6380"
-            ],
+            "nodes": ["10.215.149.74:6380", "10.215.149.75:6380"],
             "max_redirects": 3,
             "password": "xJrhp*4mnHxbBWN2grqq",
             "timeout": 35000,
@@ -115,7 +122,7 @@ DEFAULT_CONFIG = {
             "name": "Qwen3-235B-A22B-new (推理)",
             "type": "enterprise_generate",
             "model_id": "hdy_model",
-            "url": "http://nginx-lb.hdec-copilot.svc.cluster.local:30002/v1",
+            "url": "http://10.238.130.30:11242/v1",
             "reasoning": True,
             "description": "千问 235b 最强推理模型量化版",
             "api_key": "EMPTY"
@@ -148,20 +155,29 @@ DEFAULT_CONFIG = {
     },
     "elasticsearch": {
         "hosts": [
-            "https://10.238.130.43:9200",
-            "https://10.238.130.44:9200",
+            "https://10.238.130.43:9200", "https://10.238.130.44:9200",
             "https://10.238.130.45:9200"
         ],
-        "port": 9200,
-        "scheme": "https",
-        "username": "devops",
-        "password": "mQxMg8wEKnN1WExz",
-        "verify_certs": False,
-        "index_prefix": "doc_gen",
-        "timeout": 30,
-        "max_retries": 3,
-        "retry_on_timeout": True,
-        "connections_per_node": 25  # 每个节点的连接数（推荐配置）
+        "port":
+        9200,
+        "scheme":
+        "https",
+        "username":
+        "devops",
+        "password":
+        "mQxMg8wEKnN1WExz",
+        "verify_certs":
+        False,
+        "index_prefix":
+        "doc_gen",
+        "timeout":
+        30,
+        "max_retries":
+        3,
+        "retry_on_timeout":
+        True,
+        "connections_per_node":
+        25  # 每个节点的连接数（推荐配置）
     },
     "tavily": {
         "api_key": "${TAVILY_API_KEY}",
@@ -196,7 +212,7 @@ DEFAULT_CONFIG = {
                 "hybrid_recall_size": 8,
                 "rerank_size": 5,
                 "use_simplified_prompts": True,
-                "llm_timeout": 60,
+                "llm_timeout": 120,
                 "max_retries": 2
             },
             "standard": {
@@ -396,4 +412,3 @@ DEFAULT_CONFIG = {
 # 如果配置文件为空，使用默认配置
 if not config_file:
     config_file = DEFAULT_CONFIG
-

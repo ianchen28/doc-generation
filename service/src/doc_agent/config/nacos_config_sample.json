@@ -37,7 +37,7 @@
       "name": "Qwen3-235B-A22B-new (推理)",
       "type": "enterprise_generate",
       "model_id": "hdy_model",
-      "url": "http://nginx-lb.hdec-copilot.svc.cluster.local:30002/v1",
+      "url": "http://nginx-lb.hdec-copilot.svc.cluster.local:11242/v1",
       "reasoning": true,
       "description": "千问 235b 最强推理模型量化版",
       "api_key": "EMPTY"
@@ -293,6 +293,7 @@
   "log_dir": "logs",
   "output_dir": "output",
   "server": {
+    "max_concurrent_tasks": 10,
     "workers": 20,
     "host": "0.0.0.0",
     "port": 8081

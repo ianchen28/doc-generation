@@ -6,12 +6,12 @@ Elasticsearch 底层服务模块
 import asyncio
 import time
 from dataclasses import dataclass
-# from tkinter import W
 from typing import Any, Optional
 
 from elasticsearch import AsyncElasticsearch
 
 from doc_agent.core.logger import logger
+from doc_agent.utils.meta_api import update_doc_meta_data
 from doc_agent.utils.timing import CodeTimer
 
 
@@ -34,6 +34,30 @@ class ESSearchResult:
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
+
+
+"""
+ES 说明
+
+index_id
+alias_id
+valid_indeces
+type_id
+
+一个真实 index_id 对应最多一个 alias_id
+一个 alias_id 可能对应多个 index_id
+
+alias_id -> 多个 index_id
+
+有一个 domainid -> valid_alias 的映射表，需要从中得到 valid_aliases 然后找到 index_id 和 domain_id 的对应关系
+
+valid_indeces
+valid_indeces -> domain_id
+
+根据 domain_id -> type_id 的映射表，得到 type_id
+
+
+"""
 
 
 class ESService:
@@ -63,8 +87,9 @@ class ESService:
         self._client: Optional[AsyncElasticsearch] = None
         self._initialized = False
         logger.info("初始化ES服务")
-        self.domain_index_map = {
-            "documentUploadAnswer": "personal_knowledge_base",
+        # domain_id -> alias_id/index_id
+        self.domain_id_to_alias_id_map = {
+            # "documentUploadAnswer": "personal_knowledge_base",
             "standard": "standard_index_prod",
             "thesis": "thesis_index_prod",
             "book": "book_index_prod",
@@ -76,10 +101,15 @@ class ESService:
             "announcement": "hdy_knowledge_prod_v2",
             "ai_demo": "ai_demo"
         }
-        self.index_aliases = {}
-        self.augmented_index_domain_map = {}
+        # alias_id -> index_id
+        self.alias_id_to_index_id_map = {}
+        # indeces without alias
+        self.index_id_without_alias = []
+        # index_id -> domain_id
+        self.index_id_to_domain_id_map = {}
         self.valid_indeces = []
         self._es_request_semaphore = asyncio.Semaphore(connections_per_node)
+        self._ensure_connected()
 
     async def connect(self) -> bool:
         """连接ES服务"""
@@ -118,44 +148,53 @@ class ESService:
             logger.info("ES连接成功")
 
             # 获取索引别名
-            aliases_info = await self._client.indices.get_alias(index="*")
-            for index_name, info in aliases_info.items():
+            # index_id -> alias_id
+            self.aliases_info = await self._client.indices.get_alias(index="*")
+            logger.info(f"aliases_info: {self.aliases_info}")
+
+            # 获取 alias_id -> index_id 的映射
+            for index_name, info in self.aliases_info.items():
                 if 'aliases' in info:
-                    self.index_aliases[index_name] = list(
-                        info['aliases'].keys())
+                    # aliases 字段可能有多个值，取第一个
+                    alias_ids = list(info['aliases'].keys())
+                    if alias_ids:
+                        alias_id = alias_ids[0]
+                        if alias_id not in self.alias_id_to_index_id_map:
+                            self.alias_id_to_index_id_map[alias_id] = []
+                        self.alias_id_to_index_id_map[alias_id].append(
+                            index_name)
                 else:
-                    self.index_aliases[index_name] = []
+                    self.index_id_without_alias.append(index_name)
 
-            logger.info(f"成功获取索引别名映射，共 {len(self.index_aliases)} 个索引")
+            # 结合 domain_id_to_alias_id_map 和 alias_id_to_index_id_map 构建 index_id_to_domain_id_map
+            # 在 domain_id 范围内
+            for domain_id, alias_or_index_id in self.domain_id_to_alias_id_map.items(
+            ):
+                if alias_or_index_id in self.alias_id_to_index_id_map:
+                    # alias_or_index_id is alias_id and has multiple index_id
+                    for index_id in self.alias_id_to_index_id_map[
+                            alias_or_index_id]:
+                        self.index_id_to_domain_id_map[index_id] = domain_id
+                elif alias_or_index_id in self.index_id_without_alias:
+                    # alias_or_index_id is index_id and has no alias and is not in index_id_without_alias
+                    self.index_id_to_domain_id_map[
+                        alias_or_index_id] = domain_id
+                else:
+                    logger.warning(
+                        f"index {alias_or_index_id} has domain_id {domain_id} but not listed in client's index"
+                    )
 
-            # 构建索引到域名的映射
-            for idx, alias_list in self.index_aliases.items():
-                print(f"{idx}: {alias_list}")
+            # 构建 valid_indeces
+            self.valid_indeces = list(self.index_id_to_domain_id_map.keys())
+            logger.info(f"成功获取索引别名映射，共 {len(self.valid_indeces)} 个索引")
 
-                # 查找匹配的域名
-                matched_domain_id = None
-                for domain_id, domain_idx in self.domain_index_map.items():
-                    if (domain_idx == idx or domain_idx in alias_list):
-                        matched_domain_id = domain_id
-                        break
-
-                # 如果找到匹配的域名，添加到映射表
-                if matched_domain_id:
-                    self.augmented_index_domain_map[idx] = matched_domain_id
-                    for alias_idx in alias_list:
-                        self.augmented_index_domain_map[
-                            alias_idx] = matched_domain_id
-
-                # 添加所有匹配domain_index_map的索引到有效索引列表
-                if matched_domain_id:
-                    for alias_idx in alias_list:
-                        if (alias_idx not in self.valid_indeces
-                                and alias_idx != "personal_knowledge_base"):
-                            self.valid_indeces.append(alias_idx)
-
-            logger.info(f"🔍 索引别名: {self.index_aliases}")
-            logger.info(f"扩展映射表: {self.augmented_index_domain_map}")
-            logger.info(f"有效索引: {self.valid_indeces}")
+            logger.info(f"valid_indeces: {self.valid_indeces}")
+            logger.info(
+                f"index_id_to_domain_id_map: {self.index_id_to_domain_id_map}")
+            logger.info(
+                f"alias_id_to_index_id_map: {self.alias_id_to_index_id_map}")
+            logger.info(
+                f"index_id_without_alias: {self.index_id_without_alias}")
 
             self._initialized = True
             return True
@@ -170,6 +209,115 @@ class ESService:
         if not self._initialized or not self._client:
             logger.debug("ES客户端未连接，尝试连接")
             await self.connect()
+
+    async def search_by_file_token(self,
+                                   index: str,
+                                   file_token: str,
+                                   top_k: int = 100) -> list[ESSearchResult]:
+        """
+        根据file_token查询文档内容
+        
+        Args:
+            index: 索引名称
+            file_token: 文件token
+            top_k: 返回结果数量
+            
+        Returns:
+            List[ESSearchResult]: 搜索结果列表
+        """
+        logger.info(f"开始按file_token查询，索引: {index}, file_token: {file_token}")
+
+        # 验证索引是否在有效范围内（允许通配符索引用于文档范围搜索）
+        index = "personal_knowledge_base"
+
+        await self._ensure_connected()
+
+        if not self._client:
+            logger.error("ES客户端未连接")
+            return []
+
+        try:
+            search_body = {
+                "size": top_k * 2,  # 设置更大的size
+                "query": {
+                    "term": {
+                        "doc_id": file_token
+                    }
+                }
+                # 移除排序，避免字段不存在的问题
+            }
+
+            logger.debug(f"file_token查询体: {search_body}")
+
+            # 执行搜索
+            response = await self._client.search(index=index, body=search_body)
+
+            # 解析结果
+            results = []
+            docs = []
+
+            # 为每个文档设置 index 和 domain_id，以便 update_doc_meta_data 使用
+            for hit in response['hits']['hits']:
+                doc = hit['_source'].copy()
+
+                doc['_id'] = hit['_id']  # 添加 _id 字段
+                doc['index'] = hit['_index']  # 添加 index 字段
+
+                index = doc['index']
+                # domain_id = self.index_id_to_domain_id_map.get(index, "")
+                domain_id = "documentUploadAnswer"
+
+                if not domain_id:
+                    logger.info(f"未找到索引 {index} 的域名映射")
+                logger.info(f"index_id -> domain_id: {index} -> {domain_id}")
+
+                doc['domain_id'] = domain_id
+                docs.append(doc)
+
+            docs = update_doc_meta_data(docs)
+
+            for doc in docs:
+                # 安全获取 doc_id
+                doc_id = doc.get('doc_id', "")
+                index = doc.get('index', "")
+                domain_id = doc.get('domain_id', "")  # 使用之前设置的 domain_id
+
+                doc_from = "self" if domain_id == "documentUploadAnswer" else "data_platform"
+
+                logger.debug(
+                    f"file_token查询结果 - 索引: {index}, domain_id: {domain_id}, doc_from: {doc_from}"
+                )
+                original_content = (doc.get('content_view')
+                                    or doc.get('content') or doc.get('text')
+                                    or doc.get('title') or '')
+                div_content = (doc.get('content') or doc.get('text')
+                               or doc.get('title') or '')
+
+                source = (doc.get('meta_data', {}).get('file_name')
+                          or doc.get('file_name') or doc.get('name') or '')
+
+                result = ESSearchResult(id=doc['_id'],
+                                        doc_id=doc_id,
+                                        index=index,
+                                        domain_id=domain_id,
+                                        doc_from=doc_from,
+                                        file_token=doc.get('file_token', ""),
+                                        original_content=original_content,
+                                        div_content=div_content,
+                                        source=source,
+                                        score=doc.get('score', 0.0),
+                                        metadata=doc.get('meta_data', {}),
+                                        alias_name=index)
+                # 修改 metadata.source = doc_from
+                result.metadata["source"] = doc_from
+                results.append(result)
+
+            logger.info(f"file_token查询成功，返回 {len(results)} 个文档")
+            return results
+
+        except Exception as e:
+            logger.error(f"file_token查询失败: {str(e)}")
+            return []
 
     async def search(
             self,
@@ -199,9 +347,6 @@ class ESService:
             logger.debug(f"过滤条件: {filters}")
 
         # 验证索引是否在有效范围内（允许通配符索引用于文档范围搜索）
-        if index != "*" and index not in self.valid_indeces:
-            logger.warning(f"索引 {index} 不在有效索引范围内: {self.valid_indeces}")
-            return []
         if index == "*":
             index = self.valid_indeces
 
@@ -231,46 +376,40 @@ class ESService:
 
             # 解析结果
             results = []
+            docs = []
             for hit in response['hits']['hits']:
-                doc_data = hit['_source']
+                doc = hit['_source'].copy()
+                index = hit["_index"]
+                doc["index"] = index
+                domain_id = self.index_id_to_domain_id_map.get(index, "")
+                doc["domain_id"] = domain_id
+                docs.append(doc)
 
+            docs = update_doc_meta_data(docs)
+
+            for doc in docs:
                 # 获取原始内容和切分后的内容
-                original_content = (doc_data.get('content_view')
-                                    or doc_data.get('content')
-                                    or doc_data.get('text')
-                                    or doc_data.get('title') or '')
+                original_content = (doc.get('content_view')
+                                    or doc.get('content') or doc.get('text')
+                                    or doc.get('title') or '')
 
-                div_content = (doc_data.get('content') or doc_data.get('text')
-                               or doc_data.get('title') or '')
+                div_content = (doc.get('content') or doc.get('text')
+                               or doc.get('title') or '')
 
                 # 灵活获取来源字段
-                source = (doc_data.get('meta_data', {}).get('file_name')
-                          or doc_data.get('file_name') or doc_data.get('name')
-                          or '')
+                source = (doc.get('meta_data', {}).get('file_name')
+                          or doc.get('file_name') or doc.get('name') or '')
 
                 # 安全获取 doc_id，如果不存在则使用 _id
-                doc_id = doc_data.get('doc_id', "")
+                doc_id = doc.get('doc_id', "")
                 index = hit["_index"]
-                domain_id = self.augmented_index_domain_map.get(index, "")
-
-                # 如果找不到domain_id，尝试从索引名称推断
-                if not domain_id:
-                    # 尝试从索引名称推断域名
-                    for known_domain, known_index in self.domain_index_map.items(
-                    ):
-                        if index == known_index or index in self.index_aliases.get(
-                                known_index, []):
-                            domain_id = known_domain
-                            break
-
-                    # 如果还是找不到，使用索引名称作为domain_id
-                    if not domain_id:
-                        domain_id = index
-                        logger.debug(f"未找到索引 {index} 的域名映射，使用索引名称作为domain_id")
+                domain_id = self.index_id_to_domain_id_map.get(index, "")
+                if index == "personal_knowledge_base":
+                    domain_id = "documentUploadAnswer"
 
                 doc_from = "self" if domain_id == "documentUploadAnswer" else "data_platform"
 
-                logger.debug(
+                logger.info(
                     f"搜索结果 - 索引: {index}, domain_id: {domain_id}, doc_from: {doc_from}"
                 )
 
@@ -279,13 +418,12 @@ class ESService:
                                         index=index,
                                         domain_id=domain_id,
                                         doc_from=doc_from,
-                                        file_token=doc_data.get(
-                                            'file_token', ""),
+                                        file_token=doc.get('file_token', ""),
                                         original_content=original_content,
                                         div_content=div_content,
                                         source=source,
                                         score=hit['_score'],
-                                        metadata=doc_data.get('meta_data', {}),
+                                        metadata=doc.get('meta_data', {}),
                                         alias_name=index)
                 # 修改 metadata.source = doc_from
                 result.metadata["source"] = doc_from
@@ -364,41 +502,32 @@ class ESService:
             }
         }
 
-        # 如果有文本查询，使用混合搜索
-        if query:
-            logger.debug("构建混合搜索查询")
-            search_body = {
-                "size": top_k,
-                "knn": {
-                    "field": "context_vector",
-                    "query_vector": query_vector,
-                    "k": top_k,  # 扩大候选池
-                    "num_candidates": top_k * 2  # 增加候选数量
-                },
-                "query": {
-                    "bool": {
-                        "filter": [{
-                            "multi_match": {
-                                "query": query,
-                                "fields": ["content", "title", "text"],
-                                "type": "best_fields"
-                            }
-                        }]
-                    }
+        # 构建过滤条件
+        filter_conditions = []
+
+        # 添加 valid 过滤条件
+        filter_conditions.append({'term': {'valid': True}})
+
+        # 添加自定义过滤条件（如果存在）
+        if filters:
+            logger.debug(f"添加KNN过滤条件: {filters}")
+            for key, value in filters.items():
+                if isinstance(value, list):
+                    if value:  # 非空列表
+                        filter_conditions.append({"terms": {key: value}})
+                elif value is not None:
+                    filter_conditions.append({"term": {key: value}})
+
+        # 如果有过滤条件，添加到KNN查询中
+        if filter_conditions:
+            search_body["knn"]["filter"] = {
+                'bool': {
+                    'must': filter_conditions,
+                    'must_not': []
                 }
             }
 
-        # 添加过滤条件
-        if filters:
-            logger.debug(f"添加过滤条件: {filters}")
-            filter_conditions = self._build_filter_conditions(filters)
-            if "knn" in search_body:
-                search_body["knn"]["filter"] = filter_conditions
-            elif "query" in search_body:
-                # 对于混合搜索，将过滤条件添加到bool查询中
-                if "bool" in search_body["query"]["script_score"]["query"]:
-                    search_body["query"]["script_score"]["query"]["bool"][
-                        "filter"] = filter_conditions["bool"]["must"]
+        logger.info(f"构建的KNN搜索查询体: {search_body}")
 
         return search_body
 
@@ -570,7 +699,7 @@ class ESService:
                         # 安全获取 doc_id，如果不存在则使用 _id
                         doc_id = doc_data.get('doc_id', "")
                         index = hit["_index"]
-                        domain_id = self.augmented_index_domain_map.get(
+                        domain_id = self.index_id_to_domain_id_map.get(
                             index, "")
 
                         # 如果找不到domain_id，尝试从索引名称推断
@@ -618,119 +747,6 @@ class ESService:
 
         except Exception as e:
             logger.error(f"多索引搜索失败: {str(e)}")
-            return []
-
-    async def search_by_file_token(self,
-                                   index: str,
-                                   file_token: str,
-                                   top_k: int = 100) -> list[ESSearchResult]:
-        """
-        根据file_token查询文档内容
-        
-        Args:
-            index: 索引名称
-            file_token: 文件token
-            top_k: 返回结果数量
-            
-        Returns:
-            List[ESSearchResult]: 搜索结果列表
-        """
-        logger.info(f"开始按file_token查询，索引: {index}, file_token: {file_token}")
-
-        # 验证索引是否在有效范围内（允许通配符索引用于文档范围搜索）
-        if index != "*" and index not in self.valid_indeces:
-            logger.warning(f"索引 {index} 不在有效索引范围内: {self.valid_indeces}")
-            return []
-
-        await self._ensure_connected()
-
-        if not self._client:
-            logger.error("ES客户端未连接")
-            return []
-
-        try:
-            search_body = {
-                "size": top_k * 2,  # 设置更大的size
-                "query": {
-                    "term": {
-                        "doc_id": file_token
-                    }
-                }
-                # 移除排序，避免字段不存在的问题
-            }
-
-            logger.debug(f"file_token查询体: {search_body}")
-
-            # 执行搜索
-            response = await self._client.search(index=index, body=search_body)
-
-            # 解析结果
-            results = []
-            for hit in response['hits']['hits']:
-                doc_data = hit['_source']
-
-                # 获取原始内容和切分后的内容
-                original_content = (doc_data.get('content_view')
-                                    or doc_data.get('content')
-                                    or doc_data.get('text')
-                                    or doc_data.get('title') or '')
-
-                div_content = (doc_data.get('content') or doc_data.get('text')
-                               or doc_data.get('title') or '')
-
-                # 灵活获取来源字段
-                source = (doc_data.get('meta_data', {}).get('file_name')
-                          or doc_data.get('file_name') or doc_data.get('name')
-                          or '')
-
-                # 安全获取 doc_id
-                doc_id = doc_data.get('doc_id', "")
-                index = hit["_index"]
-                domain_id = self.augmented_index_domain_map.get(index, "")
-
-                # 如果找不到domain_id，尝试从索引名称推断
-                if not domain_id:
-                    # 尝试从索引名称推断域名
-                    for known_domain, known_index in self.domain_index_map.items(
-                    ):
-                        if index == known_index or index in self.index_aliases.get(
-                                known_index, []):
-                            domain_id = known_domain
-                            break
-
-                    # 如果还是找不到，使用索引名称作为domain_id
-                    if not domain_id:
-                        domain_id = index
-                        logger.debug(f"未找到索引 {index} 的域名映射，使用索引名称作为domain_id")
-
-                doc_from = "self" if domain_id == "documentUploadAnswer" else "data_platform"
-
-                logger.debug(
-                    f"file_token查询结果 - 索引: {index}, domain_id: {domain_id}, doc_from: {doc_from}"
-                )
-
-                result = ESSearchResult(id=hit['_id'],
-                                        doc_id=doc_id,
-                                        index=index,
-                                        domain_id=domain_id,
-                                        doc_from=doc_from,
-                                        file_token=doc_data.get(
-                                            'file_token', ""),
-                                        original_content=original_content,
-                                        div_content=div_content,
-                                        source=source,
-                                        score=hit['_score'],
-                                        metadata=doc_data.get('meta_data', {}),
-                                        alias_name=index)
-                # 修改 metadata.source = doc_from
-                result.metadata["source"] = doc_from
-                results.append(result)
-
-            logger.info(f"file_token查询成功，返回 {len(results)} 个文档")
-            return results
-
-        except Exception as e:
-            logger.error(f"file_token查询失败: {str(e)}")
             return []
 
     async def close(self):

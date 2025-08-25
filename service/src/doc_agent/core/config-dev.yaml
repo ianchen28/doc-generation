@@ -182,7 +182,7 @@ document_generation:
       use_simplified_prompts: true    # 使用简化提示词
       
       # 超时和重试
-      llm_timeout: 60                 # LLM调用超时（秒）
+      llm_timeout: 120                # LLM调用超时（秒）
       max_retries: 2                  # 最大重试次数
     
     # 标准模式配置

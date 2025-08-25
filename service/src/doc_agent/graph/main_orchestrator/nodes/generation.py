@@ -360,7 +360,7 @@ def split_chapters_node(state: ResearchState, llm_client: LLMClient) -> dict:
         "user_requirements_content": state.get("user_requirements_content",
                                                []),
         "is_online": state.get("is_online", True),
-        "is_es_search": state.get("is_es_search", True),
+        "is_es_search": state.get("is_es_search", False),
         "ai_demo": state.get("ai_demo", False)
     }
 

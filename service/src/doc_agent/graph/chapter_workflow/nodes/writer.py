@@ -46,8 +46,6 @@ def writer_node(state: ResearchState,
     Returns:
         dict: 包含当前章节内容和引用源的字典
     """
-    logger.info("--- WRITER NODE ---")
-    logger.info(f"writer state keys: {list(state.keys())}")
     job_id = state.get("job_id")
     if not job_id:
         logger.error("Writer node: job_id not found in state.")
@@ -102,6 +100,13 @@ def writer_node(state: ResearchState,
     context_for_writing = _build_writing_context(completed_chapters)
     previous_chapters_context = _build_previous_chapters_context(
         completed_chapters_content)
+    logger.info(
+        f"completed_chapters_content<debug>: {completed_chapters_content} ")
+    logger.info(
+        f"previous_chapters_context<debug>: 长度={len(previous_chapters_context)}"
+    )
+    logger.info(
+        f"previous_chapters_context<debug>: 内容{previous_chapters_context}")
 
     # 获取文档生成器配置
     document_writer_config = settings.get_agent_component_config(
@@ -277,15 +282,26 @@ def _build_writing_context(completed_chapters: list) -> str:
 
 
 def _build_previous_chapters_context(completed_chapters_content: list) -> str:
-    """构建已完成章节的上下文摘要"""
+    """构建已完成章节的上下文摘要
+    为每个章节提取标题和关键内容，提供有意义的上下文
+    """
     if not completed_chapters_content:
         return ""
 
-    return "\n\n".join([
-        f"第{i+1}章摘要:\n{content[:500]}..."
-        if len(content) > 500 else f"第{i+1}章:\n{content}"
-        for i, content in enumerate(completed_chapters_content)
-    ])
+    logger.info(
+        f"🔍 _build_previous_chapters_context 输入: {len(completed_chapters_content)} 个章节"
+    )
+
+    result_parts = []
+    for i, content in enumerate(completed_chapters_content):
+        if i == len(completed_chapters_content) - 1:
+            result_parts.append(content[:200] + "\n...\n" + content[-200:])
+        else:
+            result_parts.append(content[:200] + "\n...")
+
+    result = "\n\n---\n\n".join(result_parts)
+    logger.info(f"🔍 _build_previous_chapters_context 输出长度: {len(result)}")
+    return result
 
 
 def _get_prompt_template(prompt_selector, prompt_version, genre,
@@ -372,9 +388,9 @@ def _build_prompt(prompt_template,
     """构建完整的提示词，智能控制长度"""
 
     # 初始化各部分内容
-    available_sources_text = ""
-    prompt_requirements = ""
-    style_requirements = ""
+    available_sources_text = "无"
+    prompt_requirements = "无"
+    style_requirements = "无"
 
     # 计算基础内容的长度（不包括可变部分）
     base_content = f"""

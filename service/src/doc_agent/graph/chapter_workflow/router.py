@@ -30,10 +30,10 @@ def supervisor_router(
     """
     logger.info("🚀 ====== 进入 supervisor_router 路由节点 ======")
 
+    return "continue_to_writer"
     # 1. 从状态中提取 topic 和研究数据
     topic = state.get("topic", "")
     gathered_sources = state.get("gathered_sources", [])
-    gathered_data = state.get("gathered_data", "")  # 保持向后兼容
 
     # 🔧 新增：检查重试次数，避免无限循环
     retry_count = state.get("researcher_retry_count", 0)
@@ -52,7 +52,7 @@ def supervisor_router(
         return "continue_to_writer"
 
     # 检查是否有研究数据（优先检查 gathered_sources）
-    if not gathered_sources and not gathered_data:
+    if not gathered_sources:
         # 如果没有收集到数据，需要重新研究
         logger.warning("❌ 没有收集到数据，返回 rerun_researcher")
         return "rerun_researcher"
@@ -63,17 +63,11 @@ def supervisor_router(
         num_sources = len(gathered_sources)
         total_length = sum(len(source.content) for source in gathered_sources)
         logger.info(f"📊 使用 gathered_sources 格式，来源数量: {num_sources}")
-    else:
-        # 使用旧的字符串格式（向后兼容）
-        num_sources = gathered_data.count("===")
-        total_length = len(gathered_data)
-        logger.info(f"📊 使用 gathered_data 格式，来源数量: {num_sources}")
 
     logger.info(f"📋 Topic: {topic}")
     logger.info(f"📊 Gathered data 长度: {total_length} 字符")
     logger.info(f"🔍 来源数量: {num_sources}")
 
-    # 🔧 新增：简化决策逻辑，避免LLM调用失败
     # 如果数据量足够，直接继续到writer
     if num_sources >= 2 or total_length >= 500:
         logger.info("✅ 数据量充足，直接继续到writer")

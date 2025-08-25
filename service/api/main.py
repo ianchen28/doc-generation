@@ -1,11 +1,13 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from api.endpoints import router
+from api.endpoints import router, RUNNING_TASKS
+from doc_agent.core.config import settings
 from doc_agent.core.logger import logger
 from doc_agent.core.redis_health_check import close_redis_pool, init_redis_pool
-from doc_agent.core.config import settings
+from doc_agent.core.task_manager import TaskManager
 
 
 @asynccontextmanager
@@ -15,10 +17,16 @@ async def lifespan(app: FastAPI):
     logger.info("FastAPI应用正在启动...")
     # 初始化Redis连接池
     init_redis_pool()
+
+    # 启动TaskManager
+    await TaskManager.start_listener(RUNNING_TASKS)
     yield
+
     # 关闭
     logger.info("FastAPI应用正在关闭...")
-    # 关闭Redis连接池
+    # 停止TaskManager
+    await TaskManager.stop_listener()
+    # 最后关闭Redis连接池
     close_redis_pool()
 
 
@@ -43,11 +51,7 @@ def get_server_config():
         }
     except Exception as e:
         logger.warning(f"获取服务器配置失败，使用默认配置: {e}")
-        return {
-            'host': '0.0.0.0',
-            'port': 8081,
-            'workers': 8
-        }
+        return {'host': '0.0.0.0', 'port': 8081, 'workers': 8}
 
 
 @app.get("/")
@@ -68,4 +72,7 @@ if __name__ == "__main__":
     server_config = get_server_config()
     logger.info(f"服务器配置: {server_config}")
     import uvicorn
-    uvicorn.run(app, host=server_config['host'], port=server_config['port'], workers=server_config['workers'])
+    uvicorn.run(app,
+                host=server_config['host'],
+                port=server_config['port'],
+                workers=server_config['workers'])

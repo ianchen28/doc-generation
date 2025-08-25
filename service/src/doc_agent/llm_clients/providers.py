@@ -39,17 +39,21 @@ class GeminiClient(LLMClient):
                  base_url: str,
                  model_name: str = "gemini-1.5-pro-latest",
                  api_key: str = None,
-                 reasoning: bool = False):
+                 reasoning: bool = False,
+                 timeout: float = 60.0):
         """
         初始化Gemini客户端
         Args:
             api_key: Gemini API密钥
             model: 模型名称，默认为gemini-1.5-pro-latest
             base_url: API基础URL，如果为None则使用默认URL
+            reasoning: 是否启用推理模式
+            timeout: 请求超时时间（秒）
         """
         self.api_key = api_key
         self.model_name = model_name
         self.reasoning = reasoning
+        self.timeout = timeout
         self.parser = ReasoningParser(reasoning=reasoning)
         # 如果提供了base_url，使用它；否则使用默认URL
         if base_url:
@@ -121,7 +125,7 @@ class GeminiClient(LLMClient):
                 f"Gemini API request:\nURL: {url}\nData: {pprint.pformat(data)}"
             )
 
-            with httpx.Client(timeout=60.0) as client:
+            with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(url, json=data, headers=headers)
                 response.raise_for_status()
 
@@ -206,7 +210,7 @@ class GeminiClient(LLMClient):
             logger.debug(
                 f"Gemini 流式API请求:\nURL: {url}\nData: {pprint.pformat(data)}")
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST",
                                          url,
                                          json=data,
@@ -257,16 +261,20 @@ class DeepSeekClient(LLMClient):
                  base_url: str,
                  api_key: str,
                  model_name: str,
-                 reasoning: bool = False):
+                 reasoning: bool = False,
+                 timeout: float = 60.0):
         """
         初始化DeepSeek客户端
         Args:
             api_key: DeepSeek API密钥
             model: 模型名称，默认为deepseek-chat
+            reasoning: 是否启用推理模式
+            timeout: 请求超时时间（秒）
         """
         self.api_key = api_key
         self.model_name = model_name
         self.reasoning = reasoning
+        self.timeout = timeout
         self.parser = ReasoningParser(reasoning=reasoning)
         self.base_url = base_url.rstrip('/')
 
@@ -303,7 +311,7 @@ class DeepSeekClient(LLMClient):
             url = f"{self.base_url}/chat/completions"
             headers = {"Authorization": f"Bearer {self.api_key}"}
 
-            with httpx.Client(timeout=60.0) as client:
+            with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(url, json=data, headers=headers)
                 response.raise_for_status()
 
@@ -356,7 +364,7 @@ class DeepSeekClient(LLMClient):
             url = f"{self.base_url}/chat/completions"
             headers = {"Authorization": f"Bearer {self.api_key}"}
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST",
                                          url,
                                          json=data,
@@ -390,18 +398,22 @@ class MoonshotClient(LLMClient):
                  base_url: str,
                  api_key: str,
                  model_name: str,
-                 reasoning: bool = False):
+                 reasoning: bool = False,
+                 timeout: float = 180.0):
         """
         初始化Moonshot客户端
         Args:
             base_url: Moonshot API地址
             api_key: API密钥
             model: 模型名称
+            reasoning: 是否启用推理模式
+            timeout: 请求超时时间（秒）
         """
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.model_name = model_name
         self.reasoning = reasoning
+        self.timeout = timeout
         self.parser = ReasoningParser(reasoning=reasoning)
 
     def invoke(self, prompt: str, **kwargs) -> str:
@@ -441,7 +453,7 @@ class MoonshotClient(LLMClient):
             }
 
             # 创建自定义的httpx客户端，避免proxies参数问题
-            http_client = httpx.Client(timeout=60.0)
+            http_client = httpx.Client(timeout=self.timeout)
 
             with http_client as client:
                 response = client.post(url, json=data, headers=headers)
@@ -502,7 +514,7 @@ class MoonshotClient(LLMClient):
                 "Content-Type": "application/json"
             }
 
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
                 async with client.stream("POST",
                                          url,
                                          json=data,
@@ -536,18 +548,22 @@ class InternalLLMClient(LLMClient):
                  base_url: str,
                  api_key: str,
                  model_name: str,
-                 reasoning: bool = False):
+                 reasoning: bool = False,
+                 timeout: float = 180.0):
         """
         初始化内部模型客户端
         Args:
             base_url: 内部API地址
             api_key: API密钥
             model: 模型名称
+            reasoning: 是否启用推理模式
+            timeout: 请求超时时间（秒）
         """
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
         self.model_name = model_name
         self.reasoning = reasoning
+        self.timeout = timeout
         self.parser = ReasoningParser(reasoning=reasoning)
 
     def invoke(self, prompt: str, **kwargs) -> str:
@@ -588,7 +604,8 @@ class InternalLLMClient(LLMClient):
             } if self.api_key != "EMPTY" else {}
 
             with CodeTimer("llm_call <timer>"):
-                with httpx.Client(timeout=180.0) as client:  # 内部模型可能需要更长时间
+                with httpx.Client(
+                        timeout=self.timeout) as client:  # 使用配置的timeout
                     response = client.post(url, json=data, headers=headers)
                     response.raise_for_status()
 
@@ -642,7 +659,7 @@ class InternalLLMClient(LLMClient):
                 "Authorization": f"Bearer {self.api_key}"
             } if self.api_key != "EMPTY" else {}
 
-            with httpx.Client(timeout=180.0) as client:  # 内部模型可能需要更长时间
+            with httpx.Client(timeout=self.timeout) as client:  # 使用配置的timeout
                 with client.stream("POST", url, json=data,
                                    headers=headers) as response:
                     response.raise_for_status()
@@ -707,7 +724,7 @@ class InternalLLMClient(LLMClient):
             } if self.api_key != "EMPTY" else {}
 
             async with httpx.AsyncClient(
-                    timeout=180.0) as client:  # 内部模型可能需要更长时间
+                    timeout=self.timeout) as client:  # 使用配置的timeout
                 async with client.stream("POST",
                                          url,
                                          json=data,

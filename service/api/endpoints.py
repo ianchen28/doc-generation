@@ -6,7 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 # 导入并发配置
-from doc_agent.core.config import settings
+# from doc_agent.core.config import settings
+from doc_agent.config.nacos_config import config_file as settings
 from doc_agent.core.document_generator import generate_document_sync
 from doc_agent.core.logger import logger
 
@@ -22,14 +23,23 @@ from doc_agent.schemas import (
     DocumentGenerationRequest,
     EditActionRequest,
     OutlineGenerationRequest,
+    TaskCancelRequest,
     TaskCreationResponse,  # 导入统一的响应模型
+    TaskWaitingIndexRequest,
 )
 
 # 导入AI编辑工具和任务ID生成器
 from doc_agent.tools.ai_editing_tool import AIEditingTool
 
-# MAX_CONCURRENT_TASKS = settings.server_config.get('max_concurrent_tasks', 10)
-MAX_CONCURRENT_TASKS = settings.server.max_concurrent_tasks
+from doc_agent.core.task_manager import TaskManager
+
+MAX_CONCURRENT_TASKS = settings.get("server", {}).get("max_concurrent_tasks",
+                                                      2)
+
+RUNNING_TASKS: dict[str, asyncio.Task] = {}
+# 添加任务队列跟踪
+TASK_QUEUE: list[str] = []  # 按提交顺序记录任务ID
+task_manager = TaskManager(RUNNING_TASKS)
 
 # 并发控制
 task_semaphore = asyncio.Semaphore(MAX_CONCURRENT_TASKS)
@@ -45,8 +55,104 @@ def get_ai_editing_tool():
 
 
 # =================================================================
+# 任务管理和监控
+# =================================================================
+
+
+async def remove_task_callback(task_id: str, fut: asyncio.Task):
+    """
+    当任务完成时，从本地 RUNNING_TASKS 和 Redis 中移除任务。
+    """
+    logger.info(f"任务 {task_id} 完成，从本地 RUNNING_TASKS 和 Redis 中移除。")
+
+    RUNNING_TASKS.pop(task_id, None)
+    # 从任务队列中移除
+    if task_id in TASK_QUEUE:
+        TASK_QUEUE.remove(task_id)
+    await task_manager.deregister_task(task_id)
+    # 不需要手动设置结果，Task 的结果由协程执行自动设置
+
+
+@router.get("/jobs/stats", summary="获取全集任务统计信息")
+async def get_job_stats():
+    """
+    返回当前整个集群正在运行的任务数量和 worker 统计信息。
+    等待中的任务数仅在 worker 内部可见，无法全局统计。
+    """
+    global_tasks = await task_manager.get_global_task_stats()
+
+    # 获取当前 worker 的等待任务数
+    waiting_tasks_local = len(task_semaphore._waiters) if hasattr(
+        task_semaphore,
+        '_waiters') and task_semaphore._waiters is not None else 0
+
+    return {
+        **global_tasks, "current_worker_id": task_manager.worker_id,
+        "local_running_tasks": len(RUNNING_TASKS),
+        "local_waiting_tasks": waiting_tasks_local,
+        "max_concurrent_tasks_per_worker": MAX_CONCURRENT_TASKS
+    }
+
+
+@router.post("/jobs/waiting-index", summary="检查任务排队次序（1 表示第一个，0 表示已经开始服务）")
+async def check_job_waiting_index(request: TaskWaitingIndexRequest):
+    """
+    检查任务在本地的排队情况。
+    """
+    worker_task_info = await task_manager.get_worker_task_info(request.task_id)
+    logger.info(f"worker_task_info: {worker_task_info}")
+
+    # 检查是否有错误
+    if "error" in worker_task_info:
+        logger.error(f"获取任务信息失败: {worker_task_info['error']}")
+        return {"waitingIndex": -1, "error": worker_task_info["error"]}
+
+    # 安全地获取 task_position
+    task_position = worker_task_info.get("task_position")
+    if task_position is None:
+        logger.error("task_position 为空")
+        return {"waitingIndex": -1, "error": "task_position 为空"}
+
+    waiting_index = max(task_position - MAX_CONCURRENT_TASKS, 0)
+
+    return {"waitingIndex": waiting_index}
+
+
+@router.post("/jobs/cancel", summary="取消任务")
+async def cancel_job(request: TaskCancelRequest):
+    """
+    取消一个任务。
+    """
+    await task_manager.publish_cancellation(request.task_id)
+    return {"message": f"任务 {request.task_id} 取消请求已发送。"}
+
+
+# =================================================================
 #  核心接口改造 (使用 FastAPI BackgroundTasks, 不再依赖 Celery)
 # =================================================================
+
+
+def create_and_track_task(task_id: str, coro):
+    """
+    一个辅助函数，用于创建、注册和跟踪任务。
+    """
+    # 1. 添加到任务队列
+    TASK_QUEUE.append(task_id)
+
+    # 2. 创建 asyncio 任务
+    task = asyncio.create_task(coro)
+
+    # 3. 在本地字典中跟踪
+    RUNNING_TASKS[task_id] = task
+
+    # 4. 在 Redis 中全局注册（异步执行）
+    asyncio.create_task(task_manager.register_task(task_id))
+
+    # 5. 添加完成回调（用于清理）
+    task.add_done_callback(
+        lambda fut: asyncio.create_task(remove_task_callback(task_id, fut)))
+
+    logger.success(f"任务 {task_id} 已创建并全局跟踪。")
 
 
 @router.post("/jobs/outline",
@@ -70,13 +176,14 @@ async def generate_outline_endpoint(request: OutlineGenerationRequest,
                 session_id=request.session_id,
                 task_prompt=request.task_prompt,
                 is_online=request.is_online,
-                is_es_search=getattr(request, 'is_es_search', True),
+                is_es_search=request.is_es_search,
                 context_files=request.context_files,
                 style_guide_content=request.style_guide_content,
                 requirements=request.requirements,
             )
 
-    asyncio.create_task(run_with_semaphore())
+    create_and_track_task(str(task_id), run_with_semaphore())
+    # asyncio.create_task(run_with_semaphore())
 
     logger.success(f"大纲生成任务 {task_id} 已提交到后台。")
     return TaskCreationResponse(
@@ -115,7 +222,7 @@ async def generate_document_endpoint(request: DocumentGenerationRequest,
                                          is_online=is_online,
                                          is_es_search=is_es_search)
 
-    asyncio.create_task(run_with_semaphore())
+    create_and_track_task(str(task_id), run_with_semaphore())
 
     logger.success(f"文档生成任务 {task_id} 已提交到后台。")
     return TaskCreationResponse(
@@ -155,7 +262,7 @@ async def generate_document_ai_show_endpoint(
                                          is_es_search=is_es_search,
                                          ai_demo=True)
 
-    asyncio.create_task(run_with_semaphore())
+    create_and_track_task(str(task_id), run_with_semaphore())
 
     logger.success(f"AI展示文档生成任务 {task_id} 已提交到后台。")
     return TaskCreationResponse(

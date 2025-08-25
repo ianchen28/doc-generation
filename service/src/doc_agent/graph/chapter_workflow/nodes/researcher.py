@@ -51,26 +51,15 @@ async def async_researcher_node(
     Returns:
         dict: 包含 gathered_sources 的字典，包含 Source 对象列表
     """
-    logger.info("🔍 Researcher节点接收到的完整状态:")
-    logger.debug(f"  - topic: {state.get('topic', 'N/A')}")
-    logger.debug(
-        f"  - current_chapter_index: {state.get('current_chapter_index', 'N/A')}"
-    )
-    logger.debug(
-        f"  - research_plan: {state.get('research_plan', 'N/A')[:100]}...")
-    logger.debug(f"  - search_queries: {state.get('search_queries', [])}")
-    logger.debug(
-        f"  - search_queries类型: {type(state.get('search_queries', []))}")
-    logger.debug(
-        f"  - search_queries长度: {len(state.get('search_queries', []))}")
-    logger.debug(
-        f"  - gathered_data: {state.get('gathered_data', 'N/A')[:50]}...")
 
     search_queries = state.get("search_queries", [])
     job_id = state.get("job_id", "")
     is_online = state.get("is_online", True)
-    is_es_search = state.get("is_es_search", True)
+    is_es_search = state["is_es_search"]
     ai_demo = state.get("ai_demo", False)
+
+    logger.info(
+        f"当前重试次数 <debug> {state.get('researcher_retry_count', 0)} </debug>")
 
     if not search_queries:
         logger.warning("❌ 没有搜索查询，返回默认消息")
@@ -81,17 +70,10 @@ async def async_researcher_node(
     logger.info(f"🔧 使用复杂度级别: {complexity_config['level']}")
 
     all_sources = []  # 存储所有 Source 对象
-    source_id_counter = 1  # 源ID计数器
+    source_id_counter = state.get("current_citation_index", 1)
 
     # 获取现有的信源列表（从状态中获取）
     existing_sources = state.get("gathered_sources", [])
-    if existing_sources:
-        logger.info(f"📚 发现现有信源 {len(existing_sources)} 个，将进行去重处理")
-        # 更新源ID计数器 - 安全获取，提供默认值
-        source_id_counter = state.get("current_citation_index", 0)
-    else:
-        # 如果没有现有信源，确保有默认的引用索引
-        source_id_counter = state.get("current_citation_index", 0)
 
     # 获取embedding配置
     embedding_config = settings.supported_models.get("gte_qwen")
@@ -106,7 +88,7 @@ async def async_researcher_node(
             logger.warning(f"⚠️  Embedding客户端初始化失败: {str(e)}")
             embedding_client = None
     else:
-        logger.warning("❌ 未找到 embedding 配置，将使用文本搜索")
+        logger.warning("❌ 未找到 embedding 配置")
 
     # 根据复杂度配置获取文档配置参数
     initial_top_k = complexity_config.get('vector_recall_size', 10)
@@ -131,26 +113,7 @@ async def async_researcher_node(
     # 执行搜索
     for i, query in enumerate(search_queries, 1):
         # 生成向量
-        if embedding_client:
-            embedding_response = embedding_client.invoke(query)
-            try:
-                embedding_data = json.loads(embedding_response)
-                if isinstance(embedding_data, list):
-                    if len(embedding_data) > 0 and isinstance(
-                            embedding_data[0], list):
-                        query_vector = embedding_data[0]
-                    else:
-                        query_vector = embedding_data
-                elif isinstance(embedding_data,
-                                dict) and 'data' in embedding_data:
-                    query_vector = embedding_data['data']
-                else:
-                    logger.warning(
-                        f"⚠️  无法解析embedding响应格式: {type(embedding_data)}")
-                    query_vector = None
-            except json.JSONDecodeError:
-                logger.warning("⚠️  JSON解析失败！无法进行 ES 检索")
-                query_vector = None
+        query_vector = await _get_embedding_vector(query, embedding_client)
 
         logger.info(f"执行搜索查询 {i}/{len(search_queries)}: {query}")
         # ============================
@@ -168,25 +131,20 @@ async def async_researcher_node(
 
         if has_user_documents:
             logger.info(
-                f"🔍 在用户上传文档范围内搜索，参考文档ID数量: {len(user_data_reference_files) if user_data_reference_files else 0}，风格指南ID数量: {len(user_style_guide_content) if user_style_guide_content else 0}，需求文档ID数量: {len(user_requirements_content) if user_requirements_content else 0}"
+                f"🔍 在用户上传文档范围内搜索，参考文档ID数量: {len(user_data_reference_files) if user_data_reference_files else 0}"
+            )
+            logger.info(
+                f"风格指南ID数量: {len(user_style_guide_content) if user_style_guide_content else 0}"
+            )
+            logger.info(
+                f"需求文档ID数量: {len(user_requirements_content) if user_requirements_content else 0}"
             )
 
-            # 验证用户文档ID的有效性
-            if user_data_reference_files:
-                logger.info(
-                    f"🔍 用户参考文档ID列表: {user_data_reference_files[:5]}...")
-            if user_style_guide_content:
-                logger.info(f"🔍 用户风格指南ID列表: {user_style_guide_content[:5]}...")
-            if user_requirements_content:
-                logger.info(
-                    f"🔍 用户需求文档ID列表: {user_requirements_content[:5]}...")
-
+            user_data_es_results = []
+            user_style_es_results = []
+            user_requirement_es_results = []
             try:
                 # 在指定文档范围内执行ES搜索
-                user_data_es_results = []
-                user_style_es_results = []
-                user_requirement_es_results = []
-
                 if user_data_reference_files:
                     logger.info(
                         f"🔍 搜索用户参考文档，文档ID: {user_data_reference_files[:3]}...")
@@ -398,7 +356,8 @@ async def async_researcher_node(
                         initial_top_k=initial_top_k,
                         final_top_k=final_top_k,
                         config={
-                            'min_score': complexity_config.get('min_score', 0.3)
+                            'min_score':
+                            complexity_config.get('min_score', 0.3)
                         },
                         index="*" if not ai_demo else "ai_demo")
                     # 添加新的结果
@@ -439,7 +398,8 @@ async def async_researcher_node(
 
         # 处理ES搜索结果
         logger.info(f"🔍 ES搜索结果: {es_raw_results}")
-        if es_str_results and es_str_results.strip():
+        es_sources = []  # 初始化 es_sources 变量
+        if es_raw_results:
             try:
                 # 解析ES搜索结果，创建 Source 对象
                 es_sources = _parse_es_search_results(es_raw_results, query,
@@ -453,7 +413,8 @@ async def async_researcher_node(
         logger.info(f"🔍 ES搜索结果解析后: {es_sources}")
 
         # 处理网络搜索结果
-        if web_str_results and web_str_results.strip():
+        web_sources = []  # 初始化 web_sources 变量
+        if web_raw_results:
             try:
                 # 解析网络搜索结果，创建 Source 对象
                 web_sources = _parse_web_search_results(
@@ -472,32 +433,43 @@ async def async_researcher_node(
         user_requirement_sources = []
         user_style_sources = []
 
-        if user_str_results and user_str_results.strip():
+        if user_data_raw_results:
             try:
                 # 解析用户文档搜索结果，创建 Source 对象
                 # 只有用户参考文档会进入 gathered_sources（参考文献）
                 user_data_sources = _parse_es_search_results(
                     user_data_raw_results, query, source_id_counter)
                 source_id_counter += len(user_data_sources)
+            except Exception as e:
+                logger.error(f"❌ 解析用户文档搜索结果失败: {str(e)}")
 
+        if user_requirement_raw_results:
+            try:
                 # 用户需求文档和风格指南单独处理，不进入参考文献，使用独立的ID序列
                 user_requirement_sources = _parse_es_search_results(
                     user_requirement_raw_results, query, 1000)  # 使用1000开始的ID序列
 
+            except Exception as e:
+                logger.error(f"❌ 解析用户需求文档搜索结果失败: {str(e)}")
+
+        if user_style_raw_results:
+            try:
+                # 解析用户风格指南搜索结果，创建 Source 对象
                 user_style_sources = _parse_es_search_results(
                     user_style_raw_results, query, 2000)  # 使用2000开始的ID序列
 
-                logger.info(f"🔍 用户要求内容: {user_requirement_raw_results}")
-                logger.info(f"🔍 用户风格指南内容: {user_style_raw_results}")
-                logger.info(f"🔍 用户参考文档内容: {user_data_raw_results}")
-
-                # 只有参考文档进入 gathered_sources
-                all_sources.extend(user_data_sources)
-                logger.info(f"✅ 从用户文档搜索中提取到 {len(user_data_sources)} 个参考文档源")
-                logger.info(f"✅ 用户需求文档数量: {len(user_requirement_sources)} 个")
-                logger.info(f"✅ 用户风格指南数量: {len(user_style_sources)} 个")
             except Exception as e:
-                logger.error(f"❌ 解析用户文档搜索结果失败: {str(e)}")
+                logger.error(f"❌ 解析用户风格指南搜索结果失败: {str(e)}")
+
+        logger.info(f"🔍 用户要求内容: {user_requirement_sources}")
+        logger.info(f"🔍 用户风格指南内容: {user_style_sources}")
+        logger.info(f"🔍 用户参考文档内容: {user_data_sources}")
+
+        # 只有参考文档进入 gathered_sources
+        all_sources.extend(user_data_sources)
+        logger.info(f"✅ 从用户文档搜索中提取到 {len(user_data_sources)} 个参考文档源")
+        logger.info(f"✅ 用户需求文档数量: {len(user_requirement_sources)} 个")
+        logger.info(f"✅ 用户风格指南数量: {len(user_style_sources)} 个")
 
     # 返回结构化的源列表
     old_source_count = len(existing_sources)
@@ -517,9 +489,8 @@ async def async_researcher_node(
 
     publish_event(
         job_id, "信息收集", "document_generation", "SUCCESS", {
-            "web_sources":
-            [safe_serialize(source) for source in web_raw_results],
-            "es_sources": [safe_serialize(source) for source in all_sources],
+            "web_sources": [safe_serialize(source) for source in web_sources],
+            "es_sources": [safe_serialize(source) for source in es_sources],
             "user_data_reference_sources":
             [safe_serialize(source) for source in user_data_sources],
             "user_requirement_sources":
@@ -527,11 +498,11 @@ async def async_researcher_node(
             "user_style_guide_sources":
             [safe_serialize(source) for source in user_style_sources],
             "description":
-            f"信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_raw_results)} 个，ES搜索结果 {len(es_raw_results)} 个，用户文档搜索结果 {len(user_data_sources)} 个"
+            f"信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_sources)} 个，ES搜索结果 {len(es_sources)} 个，用户文档搜索结果 {len(user_data_sources)} 个"
         })
 
     logger.info(
-        f"🔍 信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_raw_results)} 个，ES搜索结果 {len(es_raw_results)} 个，用户文档搜索结果 {len(user_data_sources)} 个"
+        f"🔍 信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_sources)} 个，ES搜索结果 {len(es_sources)} 个，用户文档搜索结果 {len(user_data_sources)} 个"
     )
     if es_raw_results:
         logger.info(f"ES搜索结果示例：{es_raw_results[0]}")
@@ -547,5 +518,25 @@ async def async_researcher_node(
         "researcher_retry_count": new_retry_count,
         "user_requirement_sources": user_requirement_sources,
         "user_style_guide_sources": user_style_sources,
-        "user_data_reference_sources": user_data_sources
+        "user_data_reference_sources": user_data_sources,
+        "is_es_search": is_es_search,
+        "is_online": is_online,
+        "ai_demo": ai_demo,
     }
+
+
+async def _get_embedding_vector(
+        query: str, embedding_client: EmbeddingClient) -> list[float]:
+    embedding_response = embedding_client.invoke(query)
+    embedding_data = json.loads(embedding_response)
+    if isinstance(embedding_data, list):
+        if len(embedding_data) > 0 and isinstance(embedding_data[0], list):
+            query_vector = embedding_data[0]
+        else:
+            query_vector = embedding_data
+    elif isinstance(embedding_data, dict) and 'data' in embedding_data:
+        query_vector = embedding_data['data']
+    else:
+        logger.warning(f"⚠️  无法解析embedding响应格式: {type(embedding_data)}")
+        query_vector = None
+    return query_vector

@@ -207,9 +207,9 @@ JSON 输出:
     try:
         word_count = int(word_count)
     except ValueError:
-        word_count = 5000  # 默认值
+        word_count = 3000  # 默认值
     if word_count < 0:
-        word_count = 5000  # 默认值
+        word_count = 3000  # 默认值
     # if other_requirements:
     #     other_requirements = other_requirements.split("\n")
 
@@ -451,7 +451,7 @@ JSON
         })
 
     logger.info(
-        f"🔍 信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_raw_results)} 个，ES搜索结果 {len(es_raw_results)} 个"
+        f"🔍 信息收集完成，搜索到{len(all_sources)}个信息源，其中网络搜索结果 {len(web_sources)} 个，ES搜索结果 {len(es_sources)} 个"
     )
     if es_raw_results and len(es_raw_results) > 0:
         logger.info(f"搜索结果示例：{es_raw_results[0]}")

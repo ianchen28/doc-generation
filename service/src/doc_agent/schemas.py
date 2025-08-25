@@ -65,9 +65,7 @@ class Source(BaseModel):
 
     # === 前端格式字段（通过 alias 转换为驼峰命名）===
     # answer_origins 格式字段
-    domain_id: str = Field("document",
-                           alias="domainId",
-                           description="域ID（前端格式）")
+    domain_id: str = Field("all", alias="domainId", description="域ID（前端格式）")
     is_feishu_source: bool = Field(False,
                                    alias="isFeishuSource",
                                    description="是否飞书源（前端格式）")
@@ -348,7 +346,9 @@ class OutlineGenerationRequest(BaseModel):
                                         description="会话ID")
     task_prompt: str = Field(..., alias="taskPrompt", description="用户的核心指令")
     is_online: bool = Field(False, alias="isOnline", description="是否调用web搜索")
-    is_es_search: bool = Field(True, alias="isEsSearch", description="是否调用es搜索")
+    is_es_search: bool = Field(False,
+                               alias="isEsSearch",
+                               description="是否调用es搜索")
     context_files: Optional[list[dict]] = Field(None,
                                                 alias="contextFiles",
                                                 description="相关上传文件列表")
@@ -376,7 +376,9 @@ class DocumentGenerationRequest(BaseModel):
                                                 alias="contextFiles",
                                                 description="相关上传文件列表")
     is_online: bool = Field(False, alias="isOnline", description="是否调用web搜索")
-    is_es_search: bool = Field(True, alias="isEsSearch", description="是否调用es搜索")
+    is_es_search: bool = Field(True,
+                               alias="isEsSearch",
+                               description="是否调用es搜索")
 
 
 class EditActionRequest(BaseModel):
@@ -393,3 +395,17 @@ class EditActionRequest(BaseModel):
                                    "literary"]] = Field(None,
                                                         alias="polishStyle",
                                                         description="润色风格")
+
+
+class TaskWaitingIndexRequest(BaseModel):
+    """任务排队次序检查请求模型"""
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(..., alias="taskId", description="任务ID")
+
+
+class TaskCancelRequest(BaseModel):
+    """任务取消请求模型"""
+    model_config = ConfigDict(populate_by_name=True)
+
+    task_id: str = Field(..., alias="taskId", description="任务ID")

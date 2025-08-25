@@ -7,12 +7,9 @@
 from pprint import pformat as pprint
 from typing import Any
 
-from doc_agent.core.logging_config import get_logger
-
-logger = get_logger(__name__)
-
 from doc_agent.common.prompt_selector import PromptSelector
 from doc_agent.core.config import settings
+from doc_agent.core.logger import logger
 from doc_agent.graph.common import (
     format_sources_to_text as _format_sources_to_text, )
 from doc_agent.graph.common import (
@@ -57,11 +54,9 @@ async def reflection_node(state: ResearchState,
                                               "") if current_chapter else ""
 
     # 优先使用 gathered_sources 的数据，如果没有则使用 gathered_data
-    if gathered_sources and not gathered_data:
-        gathered_data = _format_sources_to_text(gathered_sources)
-        logger.info(
-            f"📊 从 gathered_sources 转换为 gathered_data，长度: {len(gathered_data)} 字符"
-        )
+    gathered_data = _format_sources_to_text(gathered_sources)
+    logger.info(
+        f"📊 从 gathered_sources 转换为 gathered_data，长度: {len(gathered_data)} 字符")
 
     # 获取复杂度配置
     complexity_config = settings.get_complexity_config()

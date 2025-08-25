@@ -104,8 +104,10 @@ def create_chapter_processing_node(chapter_workflow_graph):
             # 传递当前章节的子节信息
             "current_chapter_sub_sections":
             current_chapter.get("sub_sections", []) if current_chapter else [],
-            "is_es_search": state.get("is_es_search", True),
-            "ai_demo": state.get("ai_demo", False)
+            "is_es_search":
+            state.get("is_es_search", False),
+            "ai_demo":
+            state.get("ai_demo", False)
         }
 
         logger.debug(
@@ -207,6 +209,13 @@ def create_chapter_processing_node(chapter_workflow_graph):
             updated_completed_chapters = completed_chapters.copy()
             updated_completed_chapters.append(newly_completed_chapter)
 
+            # 更新 completed_chapters_content 以保持上下文连贯性
+            completed_chapters_content = state.get(
+                "completed_chapters_content", [])
+            updated_completed_chapters_content = completed_chapters_content.copy(
+            )
+            updated_completed_chapters_content.append(chapter_content)
+
             # 更新 writer_steps 计数器
             current_writer_steps = state.get("writer_steps", 0)
             updated_writer_steps = current_writer_steps + 1
@@ -216,9 +225,13 @@ def create_chapter_processing_node(chapter_workflow_graph):
             )
             logger.info(f"📚 全局引用源总数: {len(state['all_sources'])}")
             logger.info(f"✍️  Writer步骤计数: {updated_writer_steps}")
+            logger.info(
+                f"📝 已完成章节内容数量: {len(updated_completed_chapters_content)}")
 
             return {
                 "completed_chapters": updated_completed_chapters,
+                "completed_chapters_content":
+                updated_completed_chapters_content,
                 "current_citation_index": state['current_citation_index'],
                 "current_chapter_index":
                 state['current_chapter_index'] + 1,  # 🔧 修复：递增章节索引
@@ -245,8 +258,18 @@ def create_chapter_processing_node(chapter_workflow_graph):
             updated_completed_chapters = completed_chapters.copy()
             updated_completed_chapters.append(failed_chapter)
 
+            # 更新 completed_chapters_content 以保持上下文连贯性（即使失败也要添加内容）
+            completed_chapters_content = state.get(
+                "completed_chapters_content", [])
+            updated_completed_chapters_content = completed_chapters_content.copy(
+            )
+            updated_completed_chapters_content.append(
+                failed_chapter["content"])
+
             return {
                 "completed_chapters": updated_completed_chapters,
+                "completed_chapters_content":
+                updated_completed_chapters_content,
                 "current_citation_index": state['current_citation_index'],
                 "current_chapter_index":
                 state['current_chapter_index'] + 1,  # 🔧 修复：失败时也要递增索引

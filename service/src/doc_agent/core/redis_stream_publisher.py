@@ -51,7 +51,7 @@ class RedisStreamPublisher:
             # 使用时间戳作为ID的一部分，确保唯一性
             timestamp = int(time.time() * 1000)
             custom_id = f"{timestamp}-{i}"
-            logger.info(f"custom_id: {custom_id}")
+            # logger.info(f"custom_id: {custom_id}")
 
             event_data["redisStreamKey"] = job_id_str
             event_data["redisStreamId"] = custom_id
@@ -68,10 +68,11 @@ class RedisStreamPublisher:
             # 5. 设置过期时间（使用实际存储数据的 key）
             self.redis_client.expire(job_id_str, 24 * 60 * 60)
 
-            logger.info(
-                f"事件发布成功: job_id={job_id_str}, event_id={event_id}, "
-                f"event_type={event_data.get('eventType', 'unknown')}, i={i}, "
-                f"模式={'集群' if self.is_cluster else '单节点'}")
+            if enable_listen_logger:
+                logger.info(
+                    f"事件发布成功: job_id={job_id_str}, event_id={event_id}, "
+                    f"event_type={event_data.get('eventType', 'unknown')}, i={i}, "
+                    f"模式={'集群' if self.is_cluster else '单节点'}")
 
         except Exception as e:
             logger.error(
@@ -271,14 +272,14 @@ class RedisStreamPublisher:
             str: ISO 格式的时间戳（UTC+8）
         """
         from datetime import datetime, timezone, timedelta
-        
+
         # 创建东八区时区
         tz_east_asia = timezone(timedelta(hours=8))
-        
+
         # 获取当前UTC时间并转换为东八区时间
         utc_now = datetime.now(timezone.utc)
         east_asia_time = utc_now.astimezone(tz_east_asia)
-        
+
         return east_asia_time.isoformat()
 
     def get_stream_info(self, job_id: Union[str, int]) -> Optional[dict]:

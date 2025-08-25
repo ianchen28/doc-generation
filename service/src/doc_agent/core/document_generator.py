@@ -47,19 +47,16 @@ def generate_initial_state(task_prompt: str,
     user_data_reference_files, user_style_guide_content, user_requirements_content, _ = parse_context_files(
         context_files or [], task_id, "document")
 
-    # 创建 ResearchState 前记录数据
-    logger.info(
-        f"Job {task_id}: 创建 ResearchState，user_data_reference_files 数量: {len(user_data_reference_files)}"
-    )
-
     return ResearchState(
         job_id=task_id,
         task_prompt=task_prompt,
+        prompt_requirements=task_prompt,  # 添加用户输入要求字段
         topic=title,
         document_outline=document_outline,
         user_data_reference_files=user_data_reference_files,
         user_style_guide_content=user_style_guide_content,
         user_requirements_content=user_requirements_content,
+        user_outline_file="",  # 添加用户大纲文件字段
         is_online=is_online,
         word_count=word_count,
         is_es_search=is_es_search,
@@ -68,13 +65,17 @@ def generate_initial_state(task_prompt: str,
         style_guide_content=None,
         requirements_content=None,
         initial_sources=[],
+        initial_gathered_data="",  # 添加初始研究数据字段
         chapters_to_process=[],
         current_chapter_index=0,
         completed_chapters=[],
+        completed_chapters_content=[],  # 添加已完成章节内容列表
         final_document="",
         research_plan="",
         search_queries=[],
         gathered_sources=[],
+        gathered_data="",  # 添加当前章节研究数据字段
+        current_chapter_sub_sections=[],  # 添加当前章节子节信息字段
         sources=[],
         all_sources=[],
         current_citation_index=1,
@@ -82,6 +83,8 @@ def generate_initial_state(task_prompt: str,
         cited_sources_in_chapter=[],
         messages=[],
         ai_demo=ai_demo,
+        performance_metrics={},  # 添加性能指标字段
+        writer_steps=0,  # 添加写作步骤计数器
     )
 
 
@@ -111,6 +114,8 @@ async def generate_document_sync(task_id: str,
                                                is_online, is_es_search,
                                                ai_demo)
 
+        # 创建 ResearchState 前记录数据
+        logger.info(f"ResearchState <debug>: {initial_state}")
         # 发布开始事件
         publish_event(task_id,
                       "文档生成",
